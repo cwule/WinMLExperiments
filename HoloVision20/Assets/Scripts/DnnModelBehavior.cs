@@ -18,7 +18,7 @@ public class DnnModelBehavior : MonoBehaviour
     public TextMesh StatusBlock;
     public float ProbabilityThreshold = 0.6f;
 
-    async void Start()
+    public async void LoadModel(bool resourceLoad)
     {
         try
         {
@@ -29,7 +29,7 @@ public class DnnModelBehavior : MonoBehaviour
             // Load model
             StatusBlock.text = $"Loading {SqueezeNetModel.ModelFileName} ...";
             _dnnModel = new SqueezeNetModel();
-            await _dnnModel.LoadModelAsync(GPU);
+            await _dnnModel.LoadModelAsync(GPU, resourceLoad);
             StatusBlock.text = $"Loaded model. Starting camera...";
 
 #if ENABLE_WINMD_SUPPORT
@@ -63,14 +63,14 @@ public class DnnModelBehavior : MonoBehaviour
                     {
                         using (var videoFrame = _mediaCapturer.GetLatestFrame())
                         {
-                            await EvaluateFrame(videoFrame);
+                            await EvaluateFrame(videoFrame, resourceLoad);
                         }
                     }
                     // Use fallback if there's no camera like when testing with the emulator
                     else
                     {
                         var loadedFrame = await _mediaCapturer.GetTestFrame();
-                        await EvaluateFrame(loadedFrame);
+                        await EvaluateFrame(loadedFrame, resourceLoad);
                     }
                 }
             });
@@ -84,11 +84,11 @@ public class DnnModelBehavior : MonoBehaviour
     }
 
 #if ENABLE_WINMD_SUPPORT
-    private async Task EvaluateFrame(Windows.Media.VideoFrame videoFrame)
+    private async Task EvaluateFrame(Windows.Media.VideoFrame videoFrame, bool resourceLoad)
     {
         try
         {
-            var result = await _dnnModel.EvaluateVideoFrameAsync(videoFrame);
+            var result = await _dnnModel.EvaluateVideoFrameAsync(videoFrame, resourceLoad);
 
             if (result.DominantResultProbability > 0)
             {

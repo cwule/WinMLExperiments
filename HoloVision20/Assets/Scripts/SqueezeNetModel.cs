@@ -42,7 +42,7 @@ public class SqueezeNetModel
     public uint InputHeight { get; private set; }
 #endif // ENABLE_WINMD_SUPPORT
 
-    public async Task LoadModelAsync(bool shouldUseGpu = false)
+    public async Task LoadModelAsync(bool shouldUseGpu, bool resourceLoad)
     {
         try
         {
@@ -66,18 +66,38 @@ public class SqueezeNetModel
 
 #if ENABLE_WINMD_SUPPORT
 
-            // Load from Unity Resources via awkward UWP streams and initialize model   
-            using (var modelStream = new InMemoryRandomAccessStream())
+            if (resourceLoad)
             {
-                var dataWriter = new DataWriter(modelStream);
-                var modelResource = Resources.Load(ModelFileName) as TextAsset;
-                dataWriter.WriteBytes(modelResource.bytes);
-                await dataWriter.StoreAsync();
-                var randomAccessStream = RandomAccessStreamReference.CreateFromStream(modelStream);
+                // Load from Unity Resources via awkward UWP streams and initialize model   
+                using (var modelStream = new InMemoryRandomAccessStream())
+                {
+                    var dataWriter = new DataWriter(modelStream);
+                    var modelResource = Resources.Load(ModelFileName) as TextAsset;
+                    dataWriter.WriteBytes(modelResource.bytes);
+                    await dataWriter.StoreAsync();
+                    var randomAccessStream = RandomAccessStreamReference.CreateFromStream(modelStream);
 
-                _model = await LearningModel.LoadFromStreamAsync(randomAccessStream);
-                var deviceKind = shouldUseGpu ? LearningModelDeviceKind.DirectXHighPerformance : LearningModelDeviceKind.Cpu;
-                _session = new LearningModelSession(_model, new LearningModelDevice(deviceKind));
+                    _model = await LearningModel.LoadFromStreamAsync(randomAccessStream);
+                    var deviceKind = shouldUseGpu ? LearningModelDeviceKind.DirectXHighPerformance : LearningModelDeviceKind.Cpu;
+                    _session = new LearningModelSession(_model, new LearningModelDevice(deviceKind));
+                }
+            }
+            else
+            {
+                try
+                {
+                    var modelFile = await StorageFile.GetFileFromApplicationUriAsync(
+                     new Uri($"ms-appx:///Data/StreamingAssets/SqueezeNet.onnx"));
+
+                    _model = await LearningModel.LoadFromStorageFileAsync(modelFile);
+                    var deviceKind = shouldUseGpu ? LearningModelDeviceKind.DirectXHighPerformance : LearningModelDeviceKind.Cpu;
+                    _session = new LearningModelSession(_model, new LearningModelDevice(deviceKind));
+                }
+                catch (Exception e)
+                {
+                    var exceptionStr = e.ToString();
+                    //StatusBlock.text = exceptionStr;
+                }
             }
 
             // Get model input and output descriptions
@@ -114,7 +134,7 @@ public class SqueezeNetModel
     }
 
 #if ENABLE_WINMD_SUPPORT
-    public async Task<SqueezeNetResult> EvaluateVideoFrameAsync(VideoFrame inputFrame, int topResultsCount = 3)
+    public async Task<SqueezeNetResult> EvaluateVideoFrameAsync(VideoFrame inputFrame, bool resourceLoad ,int topResultsCount = 3)
     {
         // Sometimes on HL RS4 the D3D surface returned is null, so simply skip those frames
         if (inputFrame == null || (inputFrame.Direct3DSurface == null && inputFrame.SoftwareBitmap == null))
@@ -131,7 +151,12 @@ public class SqueezeNetModel
         // Bind the input
         var binding = new LearningModelBinding(_session);
         var imageTensor = ImageFeatureValue.CreateFromVideoFrame(inputFrame);
-        binding.Bind("data_0", imageTensor);
+
+        // input different depending on whether loaded as TextAsset or stream, cwule
+        if (resourceLoad)
+            binding.Bind("data_0", imageTensor);
+        else
+            binding.Bind("data", imageTensor);
 
         // Process the frame and get the results
         var stopwatch = Stopwatch.StartNew();
